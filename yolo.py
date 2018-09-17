@@ -7,6 +7,9 @@ import colorsys
 import os
 from timeit import default_timer as timer
 
+import csv
+import os
+
 import numpy as np
 from keras import backend as K
 from keras.models import load_model
@@ -126,45 +129,67 @@ class YOLO(object):
 
         print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
 
+        print('------------OUT_BOXES------------')
+        print(out_boxes)
+        print('------------OUT_SCORES------------')
+        print(out_scores)
+        print('------------OUT_CLASSES-----------')
+        print(out_classes)
+
+        full_result = {}
+        
         font = ImageFont.truetype(font='font/FiraMono-Medium.otf',
                     size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
         thickness = (image.size[0] + image.size[1]) // 300
 
-        for i, c in reversed(list(enumerate(out_classes))):
-            predicted_class = self.class_names[c]
-            box = out_boxes[i]
-            score = out_scores[i]
+        if len(out_boxes) > 0:
+            for i, c in reversed(list(enumerate(out_classes))):
+                predicted_class = self.class_names[c]
+                box = out_boxes[i]
+                score = out_scores[i]
 
-            label = '{} {:.2f}'.format(predicted_class, score)
-            draw = ImageDraw.Draw(image)
-            label_size = draw.textsize(label, font)
+                predicted_class_dict = {}
+                predicted_class_dict['class'] = predicted_class
+                predicted_class_dict['box'] = box
+                predicted_class_dict['score'] = score
+                
+                if not full_result:
+                    full_result['classes'] = []              
+                
+                full_result['classes'].append(predicted_class_dict)
 
-            top, left, bottom, right = box
-            top = max(0, np.floor(top + 0.5).astype('int32'))
-            left = max(0, np.floor(left + 0.5).astype('int32'))
-            bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
-            right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
-            print(label, (left, top), (right, bottom))
+                label = '{} {:.2f}'.format(predicted_class, score)
+                draw = ImageDraw.Draw(image)
+                label_size = draw.textsize(label, font)
 
-            if top - label_size[1] >= 0:
-                text_origin = np.array([left, top - label_size[1]])
-            else:
-                text_origin = np.array([left, top + 1])
+                top, left, bottom, right = box
+                top = max(0, np.floor(top + 0.5).astype('int32'))
+                left = max(0, np.floor(left + 0.5).astype('int32'))
+                bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
+                right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
+                print(label, (left, top), (right, bottom))
 
-            # My kingdom for a good redistributable image drawing library.
-            for i in range(thickness):
+                if top - label_size[1] >= 0:
+                    text_origin = np.array([left, top - label_size[1]])
+                else:
+                    text_origin = np.array([left, top + 1])
+
+                # My kingdom for a good redistributable image drawing library.
+                for i in range(thickness):
+                    draw.rectangle(
+                        [left + i, top + i, right - i, bottom - i],
+                        outline=self.colors[c])
                 draw.rectangle(
-                    [left + i, top + i, right - i, bottom - i],
-                    outline=self.colors[c])
-            draw.rectangle(
-                [tuple(text_origin), tuple(text_origin + label_size)],
-                fill=self.colors[c])
-            draw.text(text_origin, label, fill=(0, 0, 0), font=font)
-            del draw
+                    [tuple(text_origin), tuple(text_origin + label_size)],
+                    fill=self.colors[c])
+                draw.text(text_origin, label, fill=(0, 0, 0), font=font)
+                del draw
+                full_result['image'] = image
 
         end = timer()
         print(end - start)
-        return image
+
+        return full_result
 
     def close_session(self):
         self.sess.close()
@@ -178,19 +203,40 @@ def detect_video(yolo, video_path, output_path=""):
     video_fps       = vid.get(cv2.CAP_PROP_FPS)
     video_size      = (int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)),
                         int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    isOutput = True if output_path != "" else False
-    if isOutput:
-        print("!!! TYPE:", type(output_path), type(video_FourCC), type(video_fps), type(video_size))
-        out = cv2.VideoWriter(output_path, video_FourCC, video_fps, video_size)
+
+    video_name = video_path.split('/')[-1].split('.')[-2] # Video name without extension
+
+    if not output_path:
+        directory = video_path.split('/')[:-1]
+        directory.append(video_name)
+        directory = '/'.join(directory)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        output_path = directory
+
+    #if isOutput:
+    #    print("---------OUTPUT PRESENT-----------")
+    #    print("!!! str:", str(output_path), str(video_FourCC), str(video_fps), str(video_size))
+    #    print("!!! TYPE:", type(output_path), type(video_FourCC), type(video_fps), type(video_size))
+    #    #out = cv2.VideoWriter(output_path, video_FourCC, video_fps, video_size)
+    
     accum_time = 0
     curr_fps = 0
     fps = "FPS: ??"
     prev_time = timer()
+    i = 0
+
+    csv_path = output_path + '/' + video_name + '.csv'
+    
+    with open(csv_path, 'w', newline='') as csvfile:
+        fieldnames = ['video_path', 'frame_number', 'file_path', 'class', 'score', 'box']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
     while True:
         return_value, frame = vid.read()
         image = Image.fromarray(frame)
-        image = yolo.detect_image(image)
-        result = np.asarray(image)
+        full_result = yolo.detect_image(image)        
         curr_time = timer()
         exec_time = curr_time - prev_time
         prev_time = curr_time
@@ -200,13 +246,30 @@ def detect_video(yolo, video_path, output_path=""):
             accum_time = accum_time - 1
             fps = "FPS: " + str(curr_fps)
             curr_fps = 0
-        cv2.putText(result, text=fps, org=(3, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.50, color=(255, 0, 0), thickness=2)
-        cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-        cv2.imshow("result", result)
-        if isOutput:
-            out.write(result)
+        #cv2.putText(result, text=fps, org=(3, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+        #            fontScale=0.50, color=(255, 0, 0), thickness=2)
+        #cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+        #cv2.imshow("result", result)
+        if full_result:
+            classes_names = [c['class'] for c in full_result['classes']]
+            
+            filename = output_path + '/' + str(i) + '_'.join(classes_names) + '.jpg'
+
+            with open(csv_path, 'a', newline='') as csvfile:
+                fieldnames = ['video_path', 'frame_number', 'file_path', 'class', 'score', 'box']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)       
+
+                for c in full_result['classes']:
+                    writer.writerow({'video_path': video_path, 
+                                     'frame_number': i, 
+                                     'file_path': filename, 
+                                     'class': c['class'], 
+                                     'score': c['score'], 
+                                     'box': c['box']})
+            
+            cv2.imwrite(filename, np.asarray(full_result['image']))
+
+        i += 1
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     yolo.close_session()
-
