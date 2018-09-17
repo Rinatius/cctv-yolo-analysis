@@ -1,3 +1,10 @@
+### Data analysis ###
+csv/
+
+### JupyterNotebook ###
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
 *.jpg
 *.png
 *.weights
