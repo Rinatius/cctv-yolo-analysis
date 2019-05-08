@@ -139,8 +139,8 @@ class YOLO(object):
         full_result = {}
         
         font = ImageFont.truetype(font='font/FiraMono-Medium.otf',
-                    size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
-        thickness = (image.size[0] + image.size[1]) // 300
+                    size=np.floor(3e-2 * image.size[1] + 0.3).astype('int32'))
+        thickness = (image.size[0] + image.size[1]) // 700
 
         if len(out_boxes) > 0:
             for i, c in reversed(list(enumerate(out_classes))):
@@ -175,10 +175,10 @@ class YOLO(object):
                     text_origin = np.array([left, top + 1])
 
                 # My kingdom for a good redistributable image drawing library.
-                for i in range(thickness):
+                for i in range(thickness):     
                     draw.rectangle(
-                        [left + i, top + i, right - i, bottom - i],
-                        outline=self.colors[c])
+                            [left + i, top + i, right - i, bottom - i],
+                            outline=self.colors[c])
                 draw.rectangle(
                     [tuple(text_origin), tuple(text_origin + label_size)],
                     fill=self.colors[c])
